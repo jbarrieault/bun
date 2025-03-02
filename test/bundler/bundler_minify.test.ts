@@ -606,4 +606,35 @@ describe("bundler", () => {
       '(flag == 0, unbound, "c")',
     ],
   });
+  // https://github.com/oven-sh/bun/issues/14585 
+  itBundled("identifiers/SameNameDifferentModulesWithMinifyIdentifiersDisabled", {
+    files: {
+      "/foo.js": `
+        {
+            var d = 0;
+        }
+
+        export const foo = () => {}
+      `,
+      "/bar.js": `
+        // bar.js - The collision happens with this function declaration
+        function d() {}
+        export function bar() {d.length;}
+      `,
+      "/index.js": `
+        import { foo } from "./foo.js";
+        import { bar } from "./bar.js";
+
+        // Execute in order
+        foo();
+        bar();
+      `,
+    },
+    entryPoints: ["/index.js"],
+    outfile: "/out.js",
+    minifyIdentifiers: false,
+    run: {
+      stdout: "",
+    },
+  });
 });
