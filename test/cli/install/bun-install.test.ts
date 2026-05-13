@@ -6597,6 +6597,145 @@ describe.concurrent("bun-install", () => {
     });
   });
 
+  describe("CI auto-enables frozen-lockfile", () => {
+    // Drop the harness's BUN_INSTALL_FROZEN_LOCKFILE=0 escape hatch so we can
+    // observe the real CI-default behavior. Also drop named-CI vars so only the
+    // explicit `CI` value drives detection.
+    const stripCIOverrides = (extra: Record<string, string | undefined>) => {
+      const e: Record<string, string | undefined> = { ...env };
+      delete e.BUN_INSTALL_FROZEN_LOCKFILE;
+      delete e.GITHUB_ACTIONS;
+      delete e.GITLAB_CI;
+      delete e.CIRCLECI;
+      delete e.TRAVIS;
+      delete e.BUILDKITE;
+      delete e.JENKINS_URL;
+      delete e.BUILD_ID;
+      delete e.CI;
+      return { ...e, ...extra } as Record<string, string>;
+    };
+
+    async function setupDriftedLockfile(ctx: TestContext) {
+      let urls: string[] = [];
+      setContextHandler(
+        ctx,
+        dummyRegistryForContext(ctx, urls, { "0.0.3": { as: "0.0.3" }, "0.0.5": { as: "0.0.5" } }),
+      );
+
+      await writeFile(
+        join(ctx.package_dir, "package.json"),
+        JSON.stringify({ name: "foo", version: "0.0.1", dependencies: { baz: "0.0.3" } }),
+      );
+
+      // save the lockfile once
+      expect(
+        await spawn({
+          cmd: [bunExe(), "install"],
+          cwd: ctx.package_dir,
+          stdout: "ignore",
+          stdin: "ignore",
+          stderr: "ignore",
+          env,
+        }).exited,
+      ).toBe(0);
+
+      // change version of baz in package.json so a non-frozen install would mutate the lockfile
+      await writeFile(
+        join(ctx.package_dir, "package.json"),
+        JSON.stringify({ name: "foo", version: "0.0.1", dependencies: { baz: "0.0.5" } }),
+      );
+    }
+
+    it("CI=true auto-enables frozen-lockfile", async () => {
+      await withContext(defaultOpts, async ctx => {
+        await setupDriftedLockfile(ctx);
+
+        const { stderr, exited } = spawn({
+          cmd: [bunExe(), "install"],
+          cwd: ctx.package_dir,
+          stdout: "pipe",
+          stdin: "pipe",
+          stderr: "pipe",
+          env: stripCIOverrides({ CI: "true" }),
+        });
+
+        const err = await stderr.text();
+        expect(err).toContain("error: lockfile had changes, but lockfile is frozen");
+        expect(await exited).toBe(1);
+      });
+    });
+
+    it("--no-frozen-lockfile overrides CI auto-enable", async () => {
+      await withContext(defaultOpts, async ctx => {
+        await setupDriftedLockfile(ctx);
+
+        const { exited } = spawn({
+          cmd: [bunExe(), "install", "--no-frozen-lockfile"],
+          cwd: ctx.package_dir,
+          stdout: "ignore",
+          stdin: "ignore",
+          stderr: "ignore",
+          env: stripCIOverrides({ CI: "true" }),
+        });
+
+        expect(await exited).toBe(0);
+      });
+    });
+
+    it("BUN_INSTALL_FROZEN_LOCKFILE=0 overrides CI auto-enable", async () => {
+      await withContext(defaultOpts, async ctx => {
+        await setupDriftedLockfile(ctx);
+
+        const { exited } = spawn({
+          cmd: [bunExe(), "install"],
+          cwd: ctx.package_dir,
+          stdout: "ignore",
+          stdin: "ignore",
+          stderr: "ignore",
+          env: stripCIOverrides({ CI: "true", BUN_INSTALL_FROZEN_LOCKFILE: "0" }),
+        });
+
+        expect(await exited).toBe(0);
+      });
+    });
+
+    it("CI=false does not auto-enable", async () => {
+      await withContext(defaultOpts, async ctx => {
+        await setupDriftedLockfile(ctx);
+
+        const { exited } = spawn({
+          cmd: [bunExe(), "install"],
+          cwd: ctx.package_dir,
+          stdout: "ignore",
+          stdin: "ignore",
+          stderr: "ignore",
+          env: stripCIOverrides({ CI: "false" }),
+        });
+
+        expect(await exited).toBe(0);
+      });
+    });
+
+    it("explicit --frozen-lockfile still works without CI", async () => {
+      await withContext(defaultOpts, async ctx => {
+        await setupDriftedLockfile(ctx);
+
+        const { stderr, exited } = spawn({
+          cmd: [bunExe(), "install", "--frozen-lockfile"],
+          cwd: ctx.package_dir,
+          stdout: "pipe",
+          stdin: "pipe",
+          stderr: "pipe",
+          env: stripCIOverrides({}),
+        });
+
+        const err = await stderr.text();
+        expect(err).toContain("error: lockfile had changes, but lockfile is frozen");
+        expect(await exited).toBe(1);
+      });
+    });
+  });
+
   it("should handle frozenLockfile in config file", async () => {
     await withContext(defaultOpts, async ctx => {
       let urls: string[] = [];

@@ -58,6 +58,10 @@ export const bunEnv: NodeJS.Dict<string> = {
   FORCE_COLOR: undefined,
   TZ: "Etc/UTC",
   CI: "1",
+  // Opt the test harness out of the CI-default frozen-lockfile behavior introduced
+  // alongside this var. Existing install tests rely on `bun install` being free to
+  // mutate the lockfile; CI=1 above would otherwise auto-enable frozen mode.
+  BUN_INSTALL_FROZEN_LOCKFILE: "0",
   BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0",
   BUN_FEATURE_FLAG_INTERNAL_FOR_TESTING: "1",
   BUN_GARBAGE_COLLECTOR_LEVEL: process.env.BUN_GARBAGE_COLLECTOR_LEVEL || "0",

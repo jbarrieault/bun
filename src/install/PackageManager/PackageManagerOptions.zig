@@ -617,6 +617,18 @@ pub fn load(
 
         if (cli.frozen_lockfile) {
             this.enable.frozen_lockfile = true;
+        } else if (!cli.no_frozen_lockfile) {
+            // Default to frozen-lockfile in CI environments.
+            // Override with --no-frozen-lockfile or BUN_INSTALL_FROZEN_LOCKFILE=0.
+            const env_disables = if (env.get("BUN_INSTALL_FROZEN_LOCKFILE")) |val|
+                strings.eqlComptime(val, "0")
+            else
+                false;
+            // Use bun.ci.isCI() (value-aware: respects CI=false) rather than
+            // env.isCI() (presence check) so users can explicitly opt out.
+            if (!env_disables and bun.ci.isCI()) {
+                this.enable.frozen_lockfile = true;
+            }
         }
 
         if (cli.force) {
